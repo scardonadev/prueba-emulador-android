@@ -51,15 +51,16 @@ sleep 16
 adb shell input keyevent 4 || true
 sleep 3
 
-# Navegación (una vez) vía TAPS. Tokens: "text:MOVIES" | "key:N" | "x,y".
-# Recomendado para película: TAPS="text:MOVIES key:22 key:23 key:23"
+# Navegación (una vez) vía TAPS. Tokens: "text:MOVIES" | "key:N" | "sleep:N" | "x,y".
+# Para película (deja cargar la grilla):
+#   TAPS="text:MOVIES sleep:22 key:22 key:23 sleep:8 key:23 key:23"
 for t in ${TAPS:-}; do
   case "$t" in
-    text:*) tap_text "${t#text:}" || true ;;
-    key:*)  adb shell input keyevent "${t#key:}" || true ;;
-    *,*)    x="${t%,*}"; y="${t#*,}"; adb shell input tap "$x" "$y" || true ;;
+    text:*)  tap_text "${t#text:}" || true; sleep 2 ;;
+    key:*)   adb shell input keyevent "${t#key:}" || true; sleep 2 ;;
+    sleep:*) sleep "${t#sleep:}" ;;
+    *,*)     x="${t%,*}"; y="${t#*,}"; adb shell input tap "$x" "$y" || true; sleep 2 ;;
   esac
-  sleep 4
 done
 
 # Evidencia: screenshots + UI dump cada 10s.
