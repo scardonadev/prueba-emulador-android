@@ -127,10 +127,28 @@ if [ -n "${TAPS:-}" ]; then
     j=$((j+1)); snap "step_$j"
   done
 else
-  # 4) Abrir el primer póster (por bounds) y darle play. Snapshots en cada paso.
+  # 4) Abrir el primer póster (por bounds).
   tap_first_poster || adb shell input keyevent 22
   sleep 8; snap 2_detail
-  adb shell input keyevent 23 || true; sleep 3; snap 3_play
+  # 4b) Cerrar el coach-mark/tutorial ("Next"/mButton) que TAPA el botón Play.
+  #     Puede tener varios pasos -> clic al mButton hasta que desaparezca.
+  for i in $(seq 1 8); do
+    dump_ui || break
+    if grep -qiE 'com.lite.fczx:id/mButton|access the subtitles|You can now' /tmp/ui.xml; then
+      b=$(tr '>' '\n' < /tmp/ui.xml | grep -i 'mButton' | grep -oE 'bounds="\[[0-9,]+\]\[[0-9,]+\]"' | head -1)
+      if [ -n "$b" ]; then set -- $(echo "$b" | grep -oE '[0-9]+'); adb shell input tap $(( ($1+$3)/2 )) $(( ($2+$4)/2 )) || true
+      else adb shell input tap 432 883 || true; fi
+      sleep 2
+    else break; fi
+  done
+  snap 2b_ready
+  # 4c) PLAY: en la ficha el botón de reproducción suele quedar enfocado -> CENTER;
+  #     y por si acaso, tap directo al círculo ▶ (arriba-derecha) por coordenada.
+  adb shell input keyevent 23 || true; sleep 2
+  adb shell input tap 1600 265 || true
+  sleep 5; snap 3_play
+  # 4d) segundo intento (por si el foco no estaba en Play al primer CENTER).
+  adb shell input keyevent 23 || true; sleep 4; snap 3b_play2
 fi
 
 # ¿Es viable un GATEWAY? El motor levanta un server local (mem://127.0.0.1:PORT y
