@@ -19,6 +19,9 @@ on:
       exit_node:
         description: "IP Tailscale del exit node (tu PC residencial). Vacío = sin túnel (será bloqueado)."
         default: ""
+      block_p2p:
+        description: 'Bloquear P2P (udp/5333) para forzar HTTP y capturar la URL real del CDN: "true"/"false"'
+        default: "false"
 
 jobs:
   capture:
@@ -65,6 +68,7 @@ jobs:
           TAPS: ${{ github.event.inputs.taps }}
           EXIT_NODE: ${{ github.event.inputs.exit_node }}
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          BLOCK_P2P: ${{ github.event.inputs.block_p2p }}
         with:
           api-level: 30
           target: google_apis        # google_apis (NO playstore) => permite adb root

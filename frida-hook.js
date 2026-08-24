@@ -34,6 +34,49 @@ function hookSockets() {
   });
   var gai = Module.findExportByName('libc.so', 'getaddrinfo');
   if (gai) { try { Interceptor.attach(gai, { onEnter: function (a) { try { emit({ tag: 'DNS', data: a[0].readUtf8String() }); } catch (e) {} } }); } catch (e) {} }
+
+  // connect(): revela a qué IP/puerto marca el motor (¿toca el CDN por TCP, o todo P2P/UDP?).
+  var conn = Module.findExportByName('libc.so', 'connect') || Module.findExportByName(null, 'connect');
+  if (conn) {
+    try {
+      Interceptor.attach(conn, {
+        onEnter: function (a) {
+          try {
+            var sa = a[1]; if (sa.isNull()) return;
+            var fam = sa.readU16();
+            if (fam === 2) { // AF_INET
+              var port = (sa.add(2).readU8() << 8) | sa.add(3).readU8();
+              var ip = sa.add(4).readU8() + '.' + sa.add(5).readU8() + '.' + sa.add(6).readU8() + '.' + sa.add(7).readU8();
+              if (ip.indexOf('127.0.0.1') !== 0 && port !== 0) emit({ tag: 'connect', data: ip + ':' + port });
+            }
+          } catch (e) {}
+        }
+      });
+    } catch (e) {}
+  }
+}
+
+// NSS (TLS embebido del .so): PR_Write/PR_Read llevan el request en claro ANTES de cifrar.
+// Aquí debería salir el GET real al CDN (main_addr) con la ruta + firma del segmento.
+function hookNSS() {
+  ['PR_Write', 'PR_Send', 'PR_Read', 'PR_Recv'].forEach(function (fn) {
+    Process.enumerateModules().forEach(function (m) {
+      var p = Module.findExportByName(m.name, fn); if (!p) return;
+      try {
+        Interceptor.attach(p, {
+          onEnter: function (a) {
+            try {
+              var len = a[2].toInt32();
+              if (len <= 8 || len > 1048576) return;
+              var s = bytesToStr(a[1].readByteArray(Math.min(len, 4096)));
+              if (looksHttp(s)) emit({ tag: fn + '@' + m.name, data: head(s) });
+            } catch (e) {}
+          }
+        });
+        emit({ tag: 'info', data: 'hooked ' + fn + '@' + m.name });
+      } catch (e) {}
+    });
+  });
 }
 
 function hookSSL() {
@@ -124,6 +167,7 @@ function hookJava() {
 setTimeout(function () {
   try { hookSockets(); } catch (e) {}
   try { hookSSL(); } catch (e) {}
+  try { hookNSS(); } catch (e) {}
   try { hookJava(); } catch (e) {}
   emit({ tag: 'info', data: 'hooks instalados' });
 }, 800);

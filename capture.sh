@@ -42,7 +42,13 @@ else
   echo "::warning::sin TS_AUTHKEY/EXIT_NODE -> el emulador saldrá por la IP del runner (será bloqueada: portal100024)"
 fi
 
-# (Sin bloqueo P2P: dejamos que reproduzca de verdad. Capturamos igual por Frida.)
+# Forzar HTTP (opcional): bloquea los trackers P2P (udp/5333) para que el motor caiga a
+# transmit_protocol=http y pida los segmentos al main_addr por HTTP -> capturable con los
+# hooks connect/PR_Write/sendto. Si BLOCK_P2P!=true, deja la entrega P2P normal.
+if [ "${BLOCK_P2P:-false}" = "true" ]; then
+  echo "== Bloqueando P2P (udp/5333) para forzar HTTP =="
+  sudo iptables -A OUTPUT -p udp --dport 5333 -j DROP || true
+fi
 
 # Toca el centro del primer nodo cuyo text coincida (insensible a mayúsculas).
 tap_text() {
@@ -91,6 +97,10 @@ done
 
 wait "$DRV" || true
 adb logcat -d > capture/logcat.txt 2>/dev/null || true
-grep -aiE 'http|m3u8|cdn|sign_type|token|main_addr|slb|ranger|titan|portalCore|startPlay|getSlb' capture/frida.log 2>/dev/null \
+grep -aiE 'http|m3u8|cdn|sign_type|token|main_addr|slb|ranger|titan|portalCore|startPlay|getSlb|connect|PR_Write|PR_Read|mem://|\.ts|entries|auths' capture/frida.log 2>/dev/null \
   > capture/frida.filtered.txt || true
+# Aparte: SOLO las peticiones reales al CDN (connect + requests fuera de 127.0.0.1/portal).
+grep -aiE 'connect|PR_Write|PR_Read|HTTP:send|SSL_write|main_addr|\.ts|\.m3u8' capture/frida.log 2>/dev/null \
+  | grep -avE 'portalCore|127.0.0.1|umeng|crashlytics|google|firebase|installations' \
+  > capture/cdn-requests.txt || true
 echo "captura completa"
