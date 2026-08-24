@@ -15,7 +15,7 @@ on:
         default: ""
       package:
         description: "Package name del APK"
-        default: "com.android.msandroid"
+        default: "com.lite.fczx"
 
 jobs:
   capture:
@@ -37,7 +37,9 @@ jobs:
           python-version: "3.11"
 
       - name: Instalar frida-tools
-        run: pip install --quiet frida-tools
+        # Frida 17 rompió la API clásica (Java global, Module.findExportByName) que
+        # usa el hook. Fijamos la rama 16.x (frida-tools 13.x) donde funciona tal cual.
+        run: pip install --quiet "frida-tools<14"
 
       - name: Obtener APK
         env:

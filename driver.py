@@ -3,7 +3,7 @@
 # (URLs, JSON del motor, requests HTTP en claro) a capture/frida.log durante DUR s.
 import frida, sys, time, os
 
-pkg = sys.argv[1] if len(sys.argv) > 1 else "com.android.msandroid"
+pkg = sys.argv[1] if len(sys.argv) > 1 else "com.lite.fczx"
 dur = int(sys.argv[2]) if len(sys.argv) > 2 else 240
 
 os.makedirs("capture", exist_ok=True)
