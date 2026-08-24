@@ -1,0 +1,79 @@
+name: capture-stream-url
+
+# Corre un emulador Android (con KVM) en la nube, instala el APK, arranca Frida
+# como root y captura la URL/firma real que el motor Titan/Ranger genera al
+# reproducir. Nada corre en tu PC. Ejecutar manualmente desde la pestaña Actions.
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Segundos de captura"
+        default: "240"
+      taps:
+        description: 'Secuencia de taps por ciclo, "x,y x,y" (para navegar a un video y darle play)'
+        default: ""
+      package:
+        description: "Package name del APK"
+        default: "com.android.msandroid"
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Habilitar KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar frida-tools
+        run: pip install --quiet frida-tools
+
+      - name: Obtener APK
+        env:
+          APK_URL: ${{ secrets.APK_URL }}
+        run: |
+          if [ ! -f app.apk ] && [ -n "${APK_URL:-}" ]; then
+            echo "Descargando APK desde APK_URL..."
+            curl -fsSL "$APK_URL" -o app.apk
+          fi
+          if [ ! -f app.apk ]; then
+            echo "::error::No hay app.apk (ni committeado ni APK_URL secret)"; exit 1
+          fi
+          ls -la app.apk
+
+      - name: Emulador + captura
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          PKG: ${{ github.event.inputs.package }}
+          DUR: ${{ github.event.inputs.duration }}
+          TAPS: ${{ github.event.inputs.taps }}
+        with:
+          api-level: 30
+          target: google_apis        # google_apis (NO playstore) => permite adb root
+          arch: x86_64               # API 30 x86_64 trae traducción ARM (el APK es solo-ARM)
+          profile: pixel_6
+          ram-size: 4096M
+          cores: 2
+          force-avd-creation: true
+          disable-animations: true
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none
+          script: bash capture.sh
+
+      - name: Subir resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capture
+          path: capture/
+          if-no-files-found: warn
