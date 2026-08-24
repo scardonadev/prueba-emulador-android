@@ -68,26 +68,55 @@ tap_text() {
 python driver.py "$PKG" "$DUR" &
 DRV=$!
 
-# Screenshot + UI dump con nombre (para afinar navegación desde el artifact).
-snap() { # snap <etiqueta>
+# ── Navegación robusta a una PELÍCULA (VOD) ──────────────────────────────────
+# El problema real: el popup "Canal de difusión / focuzapps" reaparece y se traga
+# los taps. Solución: cerrarlo en bucle, tocar MOVIES por su texto y VERIFICAR que
+# salimos de LIVE, luego abrir el primer póster por sus bounds. Sin depender de timing.
+dump_ui() { adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1; }
+snap() { # snap <etiqueta>: guarda screenshot + UI dump con nombre
   adb exec-out screencap -p > "capture/nav_${1}.png" 2>/dev/null || true
-  adb shell uiautomator dump /sdcard/n.xml >/dev/null 2>&1 && adb pull /sdcard/n.xml "capture/nav_${1}.xml" >/dev/null 2>&1 || true
+  dump_ui && cp /tmp/ui.xml "capture/nav_${1}.xml" 2>/dev/null || true
+}
+popup_up() { dump_ui && grep -qiE 'focuzapps|Canal de difusi|PRESIONA OK' /tmp/ui.xml; }
+on_live()  { dump_ui && grep -qiE 'mFlMainLive|mLvChannelList|LGVIP' /tmp/ui.xml; }
+
+# Toca el primer nodo clickable del ÁREA DE CONTENIDO (x1>420) con tamaño de póster.
+tap_first_poster() {
+  dump_ui || return 1
+  local found
+  found=$(tr '>' '\n' < /tmp/ui.xml | grep -i 'clickable="true"' \
+    | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' \
+    | while read -r b; do
+        set -- $(echo "$b" | grep -oE '[0-9]+'); x1=$1;y1=$2;x2=$3;y2=$4
+        w=$((x2-x1)); h=$((y2-y1))
+        if [ "$x1" -gt 420 ] && [ "$w" -gt 140 ] && [ "$h" -gt 140 ] && [ "$y1" -gt 170 ]; then echo "$x1 $y1 $x2 $y2"; break; fi
+      done)
+  [ -z "$found" ] && return 1
+  set -- $found; local cx=$(( ($1+$3)/2 )) cy=$(( ($2+$4)/2 ))
+  echo "poster -> $cx,$cy"; adb shell input tap "$cx" "$cy"
 }
 
-# Cierra el banner del mod con BACK (ENTER abriría "My Account").
+# 1) Cerrar el popup de inicio en bucle (aparece tarde y REAPARECE).
 sleep 16
-adb shell input keyevent 4 || true
-sleep 3
-snap 0_home   # <-- HOME tras cerrar banner. Mira este PNG para dar los taps exactos.
+for i in $(seq 1 12); do
+  if popup_up; then echo "popup -> cierro"; adb shell input keyevent 23 || true; sleep 1; adb shell input keyevent 4 || true; fi
+  sleep 2
+done
+snap 0_home
 
-# OBJETIVO: reproducir una PELÍCULA (VOD). El token de VOD no está atado a IP.
-# Si diste TAPS, se ejecutan; si no, intento una secuencia VOD por defecto y dejo
-# screenshots numerados entre paso y paso para ver dónde quedó el foco.
-# Tokens TAPS: "text:Movies" | "key:N" (keyevent) | "sleep:N" | "x,y".
-#   DPAD: 19=up 20=down 21=left 22=right 23=center/enter.  Ej. película:
-#   TAPS="text:Movies sleep:6 key:20 key:23 sleep:8 key:23"
+# 2) Ir a MOVIES y VERIFICAR que dejamos LIVE (reintenta; recierra popup si vuelve).
+for i in $(seq 1 6); do
+  echo "intento MOVIES #$i"
+  tap_text "MOVIES" || adb shell input tap 195 557
+  sleep 5
+  if popup_up; then adb shell input keyevent 23 || true; sleep 1; fi
+  if ! on_live; then echo "salimos de LIVE (probable MOVIES)"; break; fi
+done
+snap 1_movies   # <<< ESTE es el dump clave de la grilla de películas
+
+# 3) Si el usuario pasó TAPS, se ejecutan aquí (override manual del póster/play).
 if [ -n "${TAPS:-}" ]; then
-  i=0
+  j=0
   for t in $TAPS; do
     case "$t" in
       text:*)  tap_text "${t#text:}" || true; sleep 2 ;;
@@ -95,15 +124,13 @@ if [ -n "${TAPS:-}" ]; then
       sleep:*) sleep "${t#sleep:}" ;;
       *,*)     x="${t%,*}"; y="${t#*,}"; adb shell input tap "$x" "$y" || true; sleep 2 ;;
     esac
-    i=$((i+1)); snap "step_$i"
+    j=$((j+1)); snap "step_$j"
   done
 else
-  echo "== sin TAPS: intento VOD por defecto (tap 'Movies' -> abrir 1er título -> play) =="
-  tap_text "Movies" || tap_text "Películas" || tap_text "MOVIES" || adb shell input keyevent 20
-  sleep 6; snap 1_movies
-  adb shell input keyevent 20 || true; sleep 1      # baja a la grilla
-  adb shell input keyevent 23 || true; sleep 8; snap 2_detail   # abre el primer título
-  adb shell input keyevent 23 || true; sleep 3; snap 3_play     # play
+  # 4) Abrir el primer póster (por bounds) y darle play. Snapshots en cada paso.
+  tap_first_poster || adb shell input keyevent 22
+  sleep 8; snap 2_detail
+  adb shell input keyevent 23 || true; sleep 3; snap 3_play
 fi
 
 # ¿Es viable un GATEWAY? El motor levanta un server local (mem://127.0.0.1:PORT y
