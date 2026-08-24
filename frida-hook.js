@@ -2,8 +2,8 @@
 // Captura la URL/firma real del stream leyendo en el borde (antes del TLS embebido):
 //   - Java: IjkMediaPlayer.setDataSource + TODOS los métodos de com.titan.ranger.*
 //   - Nativo: send/write/sendto de libc  -> HTTP en claro
-//   - SSL_write en cualquier lib (y en las que se carguen luego, vía dlopen) -> HTTPS en claro
-// Instala TODO de inmediato (sin setTimeout) para no perder las llamadas de arranque.
+//   - SSL_write en cualquier lib -> HTTPS en claro
+// Se instala con un pequeño retardo para dejar que la app inicialice (estable).
 
 function emit(o) { try { send(o); } catch (e) {} }
 function bytesToStr(ab) {
@@ -15,7 +15,6 @@ function bytesToStr(ab) {
 function looksHttp(s) { return /^(GET|POST|HEAD|PUT|OPTIONS) \S+ HTTP\/1/.test(s) || /\r\nHost:\s/i.test(s); }
 function head(s) { return s.split('\r\n').slice(0, 16).join('\n'); }
 
-// ── libc sockets (HTTP en claro) ──────────────────────────────────────────────
 function hookSockets() {
   ['send', 'sendto', 'write', 'sendmsg'].forEach(function (fn) {
     var p = Module.findExportByName('libc.so', fn) || Module.findExportByName(null, fn);
@@ -37,14 +36,10 @@ function hookSockets() {
   if (gai) { try { Interceptor.attach(gai, { onEnter: function (a) { try { emit({ tag: 'DNS', data: a[0].readUtf8String() }); } catch (e) {} } }); } catch (e) {} }
 }
 
-// ── SSL_write en cualquier módulo (HTTPS en claro), reintentable al cargar libs ──
-var sslHooked = {};
-function hookSSLAll() {
+function hookSSL() {
   Process.enumerateModules().forEach(function (m) {
-    if (sslHooked[m.name]) return;
     var w = Module.findExportByName(m.name, 'SSL_write');
-    if (!w) { return; }
-    sslHooked[m.name] = true;
+    if (!w) return;
     try {
       Interceptor.attach(w, {
         onEnter: function (a) {
@@ -59,18 +54,7 @@ function hookSSLAll() {
   });
 }
 
-// Re-escanear SSL cuando se carga una librería nueva (captura TLS de arranque).
-function hookDlopen() {
-  ['android_dlopen_ext', 'dlopen'].forEach(function (fn) {
-    var p = Module.findExportByName(null, fn);
-    if (!p) return;
-    try { Interceptor.attach(p, { onLeave: function () { try { hookSSLAll(); } catch (e) {} } }); } catch (e) {}
-  });
-}
-
-// ── Java: player + motor Titan ────────────────────────────────────────────────
 function hookJava() {
-  if (typeof Java === 'undefined' || !Java.available) { emit({ tag: 'warn', data: 'Java no disponible' }); return; }
   Java.perform(function () {
     try {
       var P = Java.use('tv.danmaku.ijk.media.player.IjkMediaPlayer');
@@ -109,9 +93,9 @@ function hookJava() {
   });
 }
 
-// Instalar TODO ya (el app está en pausa por spawn; libc está cargado, SSL se re-engancha en dlopen).
-try { hookSockets(); } catch (e) { emit({ tag: 'err', data: 'sockets ' + e }); }
-try { hookDlopen(); } catch (e) {}
-try { hookSSLAll(); } catch (e) {}
-try { hookJava(); } catch (e) { emit({ tag: 'err', data: 'java ' + e }); }
-emit({ tag: 'info', data: 'hooks instalados' });
+setTimeout(function () {
+  try { hookSockets(); } catch (e) {}
+  try { hookSSL(); } catch (e) {}
+  try { hookJava(); } catch (e) {}
+  emit({ tag: 'info', data: 'hooks instalados' });
+}, 800);

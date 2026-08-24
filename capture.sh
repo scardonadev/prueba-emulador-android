@@ -23,10 +23,7 @@ sleep 5
 
 adb install -r -g app.apk || adb install -r app.apk || { echo "::error::install falló"; exit 1; }
 
-# Bloquear trackers P2P (udp/5333) para EMPUJAR al CDN HTTP (capturable en claro).
-# VOD tiene CDNs HTTP (google/cf); LIVE es más P2P.
-adb shell 'su 0 iptables -A OUTPUT -p udp --dport 5333 -j DROP' 2>/dev/null \
-  || adb shell 'iptables -A OUTPUT -p udp --dport 5333 -j DROP' 2>/dev/null || true
+# (Sin bloqueo P2P: dejamos que reproduzca de verdad. Capturamos igual por Frida.)
 
 # Toca el centro del primer nodo cuyo text coincida (insensible a mayúsculas).
 tap_text() {
