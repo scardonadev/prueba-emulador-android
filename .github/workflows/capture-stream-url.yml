@@ -78,7 +78,9 @@ jobs:
           cores: 2
           force-avd-creation: true
           disable-animations: true
-          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none
+          # -tcpdump captura TODO el tráfico del guest a pcap (agnóstico a la traducción ARM):
+          # ahí veremos la petición real al CDN (HTTP con firma, o HTTPS con solo el host, o UDP P2P).
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none -tcpdump ${{ github.workspace }}/guest.pcap
           script: bash capture.sh
 
       - name: Subir resultados

@@ -85,6 +85,25 @@ for t in ${TAPS:-}; do
   esac
 done
 
+# ¿Es viable un GATEWAY? El motor levanta un server local (mem://127.0.0.1:PORT y
+# snapinfo_url http://127.0.0.1:PORT/...). Si ese server nos entrega un HLS/TS
+# reproducible, un gateway = correr el motor y proxiar ese puerto. Lo probamos:
+# adb forward runner:19000 -> emulador:PORT y hacemos GET a rutas típicas.
+sleep 6
+PORT=$(grep -aoE 'mem://127\.0\.0\.1:[0-9]+' capture/frida.log 2>/dev/null | head -1 | grep -oE '[0-9]+$')
+MEDIA=$(grep -aoE '"media":"[^"]+"' capture/frida.log 2>/dev/null | head -1 | sed 's/.*:"//; s/"$//')
+{
+  echo "motor local: PORT=${PORT:-?}  MEDIA=${MEDIA:-?}"
+  if [ -n "${PORT:-}" ]; then
+    adb forward tcp:19000 "tcp:${PORT}" || true
+    for path in "vod/0/${MEDIA}.snapinfo" "vod/0/${MEDIA}.m3u8" "vod/0/${MEDIA}" "vod/0/${MEDIA}/index.m3u8" "${MEDIA}.m3u8" "live/${MEDIA}.m3u8" "hls/${MEDIA}.m3u8"; do
+      echo "=== GET /$path ==="
+      curl -s -m 6 -D - "http://127.0.0.1:19000/$path" -o "capture/ls_$(echo "$path" | tr '/.' '__').bin" 2>&1 || true
+      echo "  (bytes: $(wc -c < "capture/ls_$(echo "$path" | tr '/.' '__').bin" 2>/dev/null || echo 0))"
+    done
+  fi
+} > capture/local_server.txt 2>&1
+
 # Evidencia: screenshots + UI dump cada 10s.
 CYCLES=$(( DUR / 10 )); [ "$CYCLES" -lt 1 ] && CYCLES=1
 for i in $(seq 1 "$CYCLES"); do
@@ -97,6 +116,20 @@ done
 
 wait "$DRV" || true
 adb logcat -d > capture/logcat.txt 2>/dev/null || true
+
+# El pcap del guest (todo el tráfico real, incl. el motor ARM) -> lo movemos al artifact.
+for p in "${GITHUB_WORKSPACE:-.}/guest.pcap" ./guest.pcap ../guest.pcap; do
+  [ -f "$p" ] && cp "$p" capture/guest.pcap 2>/dev/null && break
+done
+# Resumen legible del pcap: hosts/IPs contactados y si hay HTTP en claro al CDN.
+if [ -f capture/guest.pcap ] && command -v tcpdump >/dev/null 2>&1; then
+  tcpdump -r capture/guest.pcap -nn -A 2>/dev/null \
+    | grep -aiE 'GET |POST |Host: |\.m3u8|\.ts|main_addr|sign|token' \
+    | grep -aviE 'portalCore|umeng|crashlytics|googleapis|firebase|/epg/|get_notice|MarketServer' \
+    > capture/pcap-cdn.txt || true
+  tcpdump -r capture/guest.pcap -nn 2>/dev/null | awk '{print $3, $5}' | sort -u \
+    > capture/pcap-endpoints.txt || true
+fi
 grep -aiE 'http|m3u8|cdn|sign_type|token|main_addr|slb|ranger|titan|portalCore|startPlay|getSlb|connect|PR_Write|PR_Read|mem://|\.ts|entries|auths' capture/frida.log 2>/dev/null \
   > capture/frida.filtered.txt || true
 # Aparte: SOLO las peticiones reales al CDN (connect + requests fuera de 127.0.0.1/portal).
