@@ -11,7 +11,7 @@ on:
         description: "Segundos de captura"
         default: "240"
       taps:
-        description: 'Secuencia de taps por ciclo, "x,y x,y" (para navegar a un video y darle play)'
+        description: 'Navegación a una PELÍCULA. Tokens: "text:Movies" "key:N"(19-23 D-pad) "sleep:N" "x,y". Vacío = intento VOD por defecto. Ej: text:Movies sleep:6 key:20 key:23 sleep:8 key:23'
         default: ""
       package:
         description: "Package name del APK"
@@ -82,6 +82,38 @@ jobs:
           # ahí veremos la petición real al CDN (HTTP con firma, o HTTPS con solo el host, o UDP P2P).
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none -tcpdump ${{ github.workspace }}/guest.pcap
           script: bash capture.sh
+
+      - name: Analizar pcap del guest (emulador ya apagado -> buffer volcado)
+        if: always()
+        run: |
+          sudo apt-get install -y tcpdump >/dev/null 2>&1 || true
+          mkdir -p capture
+          PCAP="${{ github.workspace }}/guest.pcap"
+          if [ -f "$PCAP" ]; then
+            cp "$PCAP" capture/guest.pcap || true
+            echo "== tamaño pcap ==" ; ls -la "$PCAP"
+            # Todos los endpoints (IP:puerto) contactados por el guest 10.0.2.15:
+            tcpdump -r "$PCAP" -nn 2>/dev/null | awk '{print $3" > "$5}' | sort | uniq -c | sort -rn \
+              > capture/pcap-endpoints.txt || true
+            # Peticiones HTTP en claro que NO sean portal/analytics (candidatas a CDN):
+            # -A vuelca ASCII; con contexto -A6 -B1 mantenemos juntos "GET /ruta" + "Host:" + headers.
+            tcpdump -r "$PCAP" -nn -A -s0 2>/dev/null \
+              | grep -aiE -A6 -B1 '^(GET|POST|PUT|HEAD) /|GET .*HTTP/1' \
+              | grep -aviE 'portalCore|umeng|crashlytics|googleapis|gstatic|firebase|/epg/|get_notice|MarketServer|generate_204|/v2/inn|/zcfg|/resolve' \
+              > capture/pcap-http-requests.txt || true
+            # LO MÁS IMPORTANTE: la línea GET completa (ruta del media) + el Host de cada request.
+            # Reconstruye "GET <path> HTTP" pegando el Host inmediato siguiente cuando aparece.
+            tcpdump -r "$PCAP" -nn -A -s0 2>/dev/null \
+              | grep -aoE '(GET|POST) [^ ]+ HTTP/1\.[01]|Host: [^ ]+|\.m3u8[^ ]*|[^ ]+\.ts[^ ]*' \
+              | grep -aviE 'portalCore|umeng|crashlytics|googleapis|gstatic|firebase|/epg/|generate_204' \
+              > capture/pcap-cdn.txt || true
+            # ¿Hay conexiones a los hosts CDN o a puertos de tracker P2P (5333)?
+            tcpdump -r "$PCAP" -nn 2>/dev/null | grep -aiE '\.5333|iu15fg7dn|rh6ngfv34|halfgil|xdt3cdevc' \
+              > capture/pcap-p2p-cdn.txt || true
+            echo "endpoints:"; cat capture/pcap-endpoints.txt || true
+          else
+            echo "::warning::no se generó guest.pcap"
+          fi
 
       - name: Subir resultados
         if: always()

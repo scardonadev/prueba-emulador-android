@@ -68,22 +68,43 @@ tap_text() {
 python driver.py "$PKG" "$DUR" &
 DRV=$!
 
+# Screenshot + UI dump con nombre (para afinar navegación desde el artifact).
+snap() { # snap <etiqueta>
+  adb exec-out screencap -p > "capture/nav_${1}.png" 2>/dev/null || true
+  adb shell uiautomator dump /sdcard/n.xml >/dev/null 2>&1 && adb pull /sdcard/n.xml "capture/nav_${1}.xml" >/dev/null 2>&1 || true
+}
+
 # Cierra el banner del mod con BACK (ENTER abriría "My Account").
 sleep 16
 adb shell input keyevent 4 || true
 sleep 3
+snap 0_home   # <-- HOME tras cerrar banner. Mira este PNG para dar los taps exactos.
 
-# Navegación (una vez) vía TAPS. Tokens: "text:MOVIES" | "key:N" | "sleep:N" | "x,y".
-# Para película (deja cargar la grilla):
-#   TAPS="text:MOVIES sleep:22 key:22 key:23 sleep:8 key:23 key:23"
-for t in ${TAPS:-}; do
-  case "$t" in
-    text:*)  tap_text "${t#text:}" || true; sleep 2 ;;
-    key:*)   adb shell input keyevent "${t#key:}" || true; sleep 2 ;;
-    sleep:*) sleep "${t#sleep:}" ;;
-    *,*)     x="${t%,*}"; y="${t#*,}"; adb shell input tap "$x" "$y" || true; sleep 2 ;;
-  esac
-done
+# OBJETIVO: reproducir una PELÍCULA (VOD). El token de VOD no está atado a IP.
+# Si diste TAPS, se ejecutan; si no, intento una secuencia VOD por defecto y dejo
+# screenshots numerados entre paso y paso para ver dónde quedó el foco.
+# Tokens TAPS: "text:Movies" | "key:N" (keyevent) | "sleep:N" | "x,y".
+#   DPAD: 19=up 20=down 21=left 22=right 23=center/enter.  Ej. película:
+#   TAPS="text:Movies sleep:6 key:20 key:23 sleep:8 key:23"
+if [ -n "${TAPS:-}" ]; then
+  i=0
+  for t in $TAPS; do
+    case "$t" in
+      text:*)  tap_text "${t#text:}" || true; sleep 2 ;;
+      key:*)   adb shell input keyevent "${t#key:}" || true; sleep 2 ;;
+      sleep:*) sleep "${t#sleep:}" ;;
+      *,*)     x="${t%,*}"; y="${t#*,}"; adb shell input tap "$x" "$y" || true; sleep 2 ;;
+    esac
+    i=$((i+1)); snap "step_$i"
+  done
+else
+  echo "== sin TAPS: intento VOD por defecto (tap 'Movies' -> abrir 1er título -> play) =="
+  tap_text "Movies" || tap_text "Películas" || tap_text "MOVIES" || adb shell input keyevent 20
+  sleep 6; snap 1_movies
+  adb shell input keyevent 20 || true; sleep 1      # baja a la grilla
+  adb shell input keyevent 23 || true; sleep 8; snap 2_detail   # abre el primer título
+  adb shell input keyevent 23 || true; sleep 3; snap 3_play     # play
+fi
 
 # ¿Es viable un GATEWAY? El motor levanta un server local (mem://127.0.0.1:PORT y
 # snapinfo_url http://127.0.0.1:PORT/...). Si ese server nos entrega un HLS/TS
@@ -116,22 +137,13 @@ done
 
 wait "$DRV" || true
 adb logcat -d > capture/logcat.txt 2>/dev/null || true
-
-# El pcap del guest (todo el tráfico real, incl. el motor ARM) -> lo movemos al artifact.
-for p in "${GITHUB_WORKSPACE:-.}/guest.pcap" ./guest.pcap ../guest.pcap; do
-  [ -f "$p" ] && cp "$p" capture/guest.pcap 2>/dev/null && break
-done
-# Resumen legible del pcap: hosts/IPs contactados y si hay HTTP en claro al CDN.
-if [ -f capture/guest.pcap ] && command -v tcpdump >/dev/null 2>&1; then
-  tcpdump -r capture/guest.pcap -nn -A 2>/dev/null \
-    | grep -aiE 'GET |POST |Host: |\.m3u8|\.ts|main_addr|sign|token' \
-    | grep -aviE 'portalCore|umeng|crashlytics|googleapis|firebase|/epg/|get_notice|MarketServer' \
-    > capture/pcap-cdn.txt || true
-  tcpdump -r capture/guest.pcap -nn 2>/dev/null | awk '{print $3, $5}' | sort -u \
-    > capture/pcap-endpoints.txt || true
-fi
-grep -aiE 'http|m3u8|cdn|sign_type|token|main_addr|slb|ranger|titan|portalCore|startPlay|getSlb|connect|PR_Write|PR_Read|mem://|\.ts|entries|auths' capture/frida.log 2>/dev/null \
+# NOTA: el guest.pcap se analiza en un STEP POSTERIOR del workflow (tras apagar el
+# emulador y volcar el buffer). Aquí saldría truncado.
+grep -aiE 'http|m3u8|cdn|sign_type|token|main_addr|slb|ranger|titan|portalCore|startPlay|getSlb|connect|PR_Write|PR_Read|mem://|\.ts|entries|auths|links|JniHandler|PlayMedia|REPORT\.|OnReport|proxy' capture/frida.log 2>/dev/null \
   > capture/frida.filtered.txt || true
+# Extracción directa de la telemetría del motor: enlaces CDN reales que usó (PlayMedia.links).
+grep -aiE 'REPORT\.links|REPORT\.proxy|PlayMedia.setLinks|"links"|JniHandler\.' capture/frida.log 2>/dev/null \
+  > capture/report-links.txt || true
 # Aparte: SOLO las peticiones reales al CDN (connect + requests fuera de 127.0.0.1/portal).
 grep -aiE 'connect|PR_Write|PR_Read|HTTP:send|SSL_write|main_addr|\.ts|\.m3u8' capture/frida.log 2>/dev/null \
   | grep -avE 'portalCore|127.0.0.1|umeng|crashlytics|google|firebase|installations' \

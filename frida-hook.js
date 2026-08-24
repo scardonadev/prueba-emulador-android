@@ -141,6 +141,37 @@ function hookJava() {
       emit({ tag: 'info', data: 'hooked IjkMediaPlayer' });
     } catch (e) { emit({ tag: 'warn', data: 'no IjkMediaPlayer' }); }
 
+    // *** CLAVE ***: telemetría nativo->Java. El motor reporta por JniHandler.Callback
+    // el evento OnReport con un JSON que incluye PlayMedia.links = los enlaces CDN REALES
+    // que usó (+ rule/proxy/params/session). Esto SÍ es visible a un hook Java aunque los
+    // sockets del motor ARM sean invisibles a libc. Aquí debería aparecer la URL/ruta real.
+    try {
+      var JH = Java.use('com.titan.ranger.JniHandler');
+      JH.Callback.implementation = function (cmd, json) {
+        try {
+          var s = String(json);
+          // marca lo que huele a enlace/ruta para el resumen filtrado
+          if (/OnReport|links|http|\.m3u8|\.ts|main_addr|proxy|uri|"rule"/i.test(s)) {
+            emit({ tag: 'JniHandler.' + String(cmd), data: s.length > 1600 ? s.slice(0, 1600) : s });
+            // intento de extracción directa de "links"
+            var m = s.match(/"links"\s*:\s*"([^"]*)"/);
+            if (m && m[1]) emit({ tag: 'REPORT.links', data: m[1] });
+            var p = s.match(/"proxy"\s*:\s*"([^"]*)"/);
+            if (p && p[1]) emit({ tag: 'REPORT.proxy', data: p[1] });
+          }
+        } catch (e) {}
+        return this.Callback(cmd, json);
+      };
+      emit({ tag: 'info', data: 'hooked JniHandler.Callback (OnReport/links)' });
+    } catch (e) { emit({ tag: 'warn', data: 'no JniHandler' }); }
+
+    // Además: intercepta el objeto PlayMedia por si el reporte pasa como bean (setLinks/toString).
+    try {
+      var PM = Java.use('com.titan.ranger.bean.report.PlayMedia');
+      if (PM.setLinks) { PM.setLinks.implementation = function (v) { try { if (v) emit({ tag: 'PlayMedia.setLinks', data: String(v) }); } catch (e) {} return this.setLinks(v); }; }
+      emit({ tag: 'info', data: 'hooked PlayMedia.setLinks' });
+    } catch (e) {}
+
     ['com.titan.ranger.NativeJni', 'com.titan.ranger.a', 'com.titan.ranger.b', 'com.titan.ranger.c'].forEach(function (cn) {
       try {
         var C = Java.use(cn); var seen = {};

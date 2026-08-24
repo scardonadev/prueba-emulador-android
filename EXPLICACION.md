@@ -170,9 +170,29 @@ La captura nos dice **cuál de los dos** es, sin seguir adivinando.
   en Docker en tu PC**. `capture.sh` levanta `tailscale up --exit-node=$EXIT_NODE`
   (inputs: `exit_node` + secret `TS_AUTHKEY`) tras instalar frida-server+APK y lo baja
   al salir. Así `active` pasa y el catálogo carga.
-- ⏳ **Pendiente:** con el túnel activo, tocar una película → play → leer la URL →
-  decidir (A) o (B). Cuando un video reproduzca, en el log saldrá `getSlbInfo` (con
-  `cdn_list`) y el `NativeJni.Call Open/Play`, más el `setDataSource`/request real al CDN.
+- ✅ **REPRODUCCIÓN CAPTURADA (túnel residencial):** con el exit node, la app provisiona
+  (`active rc 0`), carga catálogo y **reproduce en vivo** (LGVIP La Gala, ~343-396 KB/S).
+  Pipeline nativo completo capturado: `getSlbInfo` → `SetEntries` (auths con
+  `main_addr=iu15fg7dn.rh6ngfv34.com`, `sign_type=cs`, `token`, `check_play_ip=true`,
+  `client_ip=<IP residencial>`, `media_encrypted=0`) → `Open` (license `scheme=md5-01`,
+  `media_code`, format `ts`, h264/aac) → `SetEnv` (P2P: trackers `:5333`,
+  `transmit_protocol=http`, `link=icdn`) → `setDataSource("ijkhttphook:mem://127.0.0.1:PORT")`.
+- 🧱 **VEREDICTO = (B), y más restrictivo de lo esperado. Tres muros para "URL en web":**
+  1. **Entrega local `mem://127.0.0.1:PORT`** = protocolo propio de ijkplayer (memoria
+     compartida), NO HTTP. El HTTP server local del motor (`Server: Ranger/4.9.4`) solo
+     responde control (`/…snapinfo` → 503) → **no es proxiable como HLS**.
+  2. **Motor P2P ARM invisible a Frida**: `libranger-jni.so` corre por traducción ARM
+     (houdini); sus sockets **no** pasan por el `libc.so` x86 hookeado → `connect`/`send`/
+     `PR_Write` no capturan nada del motor. (Confirmación del transporte CDN: pendiente vía
+     `-tcpdump` a nivel de paquete, analizado en step posterior.)
+  3. **Token atado a IP** (`check_play_ip=true` + `client_ip`), y **rota por sesión** →
+     una URL reconstruida solo serviría desde la misma IP residencial.
+- 💡 **Dato clave para el camino viable:** `media_encrypted=0` → los bytes que ijkplayer
+  recibe son **MPEG-TS en claro** (h264/aac). El camino fiel a reproducción web NO es
+  reconstruir la URL sino un **GATEWAY / RESTREAMER**: correr el motor en un host con IP
+  residencial, **tap del TS que consume ijkplayer** (hook de lectura) → **FFmpeg → HLS**
+  → navegador (hls.js). Requiere un Android por stream sobre IP permitida (infra real),
+  pero no necesita RE de la firma `cs` ni descifrado.
 
 ---
 
