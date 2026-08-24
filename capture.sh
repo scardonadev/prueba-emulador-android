@@ -146,14 +146,20 @@ else
   #     El "botón Play" es la VENTANA del reproductor (mFlRoot/mPlayerWindow).
   #     Tap DIRECTO a su centro, leído del dump (fallback 1695,265).
   dump_ui
-  pb=$(tr '>' '\n' < /tmp/ui.xml | grep -iE 'mFlRoot|mPlayerWindow' | grep -oE 'bounds="\[[0-9,]+\]\[[0-9,]+\]"' | head -1)
+  # Prefiere el icono de play mIvPlayStatus; si no, la ventana del reproductor.
+  pb=$(tr '>' '\n' < /tmp/ui.xml | grep -i 'mIvPlayStatus' | grep -oE 'bounds="\[[0-9,]+\]\[[0-9,]+\]"' | head -1)
+  [ -z "$pb" ] && pb=$(tr '>' '\n' < /tmp/ui.xml | grep -iE 'mFlRoot|mPlayerWindow' | grep -oE 'bounds="\[[0-9,]+\]\[[0-9,]+\]"' | head -1)
   if [ -n "$pb" ]; then set -- $(echo "$pb" | grep -oE '[0-9]+'); px=$(( ($1+$3)/2 )); py=$(( ($2+$4)/2 )); else px=1695; py=265; fi
   echo "PLAY tap -> $px,$py"
   adb shell input tap "$px" "$py" || true
   sleep 6; snap 3_play
-  # 4d) reintento del MISMO tap por si el primero no registró (sin CENTER).
-  adb shell input tap "$px" "$py" || true
-  sleep 5; snap 3b_play2
+  # 4d) reintento CONDICIONAL: solo si SIGUE el botón ▶ (para NO pausar si ya arrancó).
+  dump_ui
+  if grep -qi 'mIvPlayStatus' /tmp/ui.xml; then
+    echo "aún ▶ -> un tap más"; adb shell input tap "$px" "$py" || true; sleep 6
+  fi
+  # 4e) deja BUFFERAR: aquí el motor pide getSlbInfo(vod) + segmentos (frida/pcap capturan).
+  sleep 25; snap 3b_play2
 fi
 
 # ¿Es viable un GATEWAY? El motor levanta un server local (mem://127.0.0.1:PORT y
