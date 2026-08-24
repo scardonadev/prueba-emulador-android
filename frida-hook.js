@@ -56,6 +56,16 @@ function hookSSL() {
 
 function hookJava() {
   Java.perform(function () {
+    // okhttp: TODAS las peticiones (incl. portalCore/getSlbInfo), sin importar el TLS.
+    try {
+      var OkHttpClient = Java.use('okhttp3.OkHttpClient');
+      OkHttpClient.newCall.implementation = function (req) {
+        try { emit({ tag: 'okhttp', data: req.method() + ' ' + String(req.url()) }); } catch (e) {}
+        return this.newCall(req);
+      };
+      emit({ tag: 'info', data: 'hooked okhttp' });
+    } catch (e) { emit({ tag: 'warn', data: 'no okhttp' }); }
+
     try {
       var P = Java.use('tv.danmaku.ijk.media.player.IjkMediaPlayer');
       ['setDataSource', '_setDataSource'].forEach(function (mn) {
