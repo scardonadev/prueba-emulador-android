@@ -35,7 +35,27 @@ adb shell 'su 0 iptables -A OUTPUT -p udp --dport 5333 -j DROP' 2>/dev/null \
 python driver.py "$PKG" "$DUR" &
 DRV=$!
 
-# Mientras captura: navegación best-effort + evidencia para afinar
+# Cierra el popup de inicio ("Canal de difusión ... PRESIONA OK O [X]") que viene
+# enfocado, y ejecuta la navegación UNA sola vez.
+sleep 18
+adb shell input keyevent 66 || true; sleep 1      # ENTER/OK (botón enfocado)
+adb shell input keyevent 4  || true; sleep 1      # BACK (por si queda otro)
+adb shell input tap 1202 648 || true; sleep 2     # tap al botón (coords del ui dump)
+
+# Secuencia opcional en ORDEN (una vez). El input TAPS admite:
+#   "x,y"    -> input tap x y           (coordenadas)
+#   "key:N"  -> input keyevent N        (D-pad TV: 22=derecha 21=izq 19=arriba 20=abajo 23=OK 66=ENTER)
+# Ej: TAPS="key:22 key:23"   ó   TAPS="900,300 1100,500"
+for t in ${TAPS:-}; do
+  case "$t" in
+    key:*) adb shell input keyevent "${t#key:}" || true ;;
+    *,*)   x="${t%,*}"; y="${t#*,}"; adb shell input tap "$x" "$y" || true ;;
+  esac
+  sleep 3
+done
+sleep 4; adb shell input keyevent 66 || true      # reintento de cierre por si el popup salió tarde
+
+# Evidencia: screenshots + UI dumps cada 20s (sin repetir taps)
 CYCLES=$(( DUR / 20 )); [ "$CYCLES" -lt 1 ] && CYCLES=1
 for i in $(seq 1 "$CYCLES"); do
   sleep 20
@@ -43,12 +63,6 @@ for i in $(seq 1 "$CYCLES"); do
   if adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; then
     adb pull /sdcard/ui.xml "capture/ui_$i.xml" >/dev/null 2>&1 || true
   fi
-  # taps opcionales para llegar a un video y darle play: TAPS="x,y x,y ..."
-  for t in ${TAPS:-}; do
-    x="${t%,*}"; y="${t#*,}"
-    adb shell input tap "$x" "$y" || true
-    sleep 3
-  done
 done
 
 wait "$DRV" || true
