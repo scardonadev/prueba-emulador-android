@@ -4,7 +4,7 @@
 # también saca screenshots + volcado UI + logcat para poder afinar los taps.
 set -uxo pipefail
 
-PKG="${PKG:-com.android.msandroid}"
+PKG="${PKG:-com.lite.fczx}"
 DUR="${DUR:-240}"
 mkdir -p capture
 

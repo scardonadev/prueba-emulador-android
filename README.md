@@ -25,7 +25,7 @@ frida-hook.js                              # los hooks
    - sube el APK a un enlace privado y crea el secret `APK_URL` (Settings → Secrets and
      variables → Actions) con esa URL; el workflow lo descarga.
    > Es el APK original instalable (el que decompilaste), no las carpetas `sources/`.
-   > Verifica el package: si no es `com.android.msandroid`, pásalo en el input `package`.
+   > Verifica el package: si no es `com.lite.fczx`, pásalo en el input `package`.
 
 3. **Lanza el workflow**: pestaña **Actions → capture-stream-url → Run workflow**.
    - 1ª corrida: deja `taps` vacío. Sirve para **ver las pantallas**.
