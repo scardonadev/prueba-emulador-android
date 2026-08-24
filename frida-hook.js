@@ -66,6 +66,24 @@ function hookJava() {
       emit({ tag: 'info', data: 'hooked okhttp' });
     } catch (e) { emit({ tag: 'warn', data: 'no okhttp' }); }
 
+    // Respuestas de portalCore: returnCode/errorMessage vienen en texto plano al inicio.
+    try {
+      var RespBuilder = Java.use('okhttp3.Response$Builder');
+      RespBuilder.build.implementation = function () {
+        var resp = this.build();
+        try {
+          var url = String(resp.request().url());
+          if (url.indexOf('portalCore') >= 0 || url.indexOf('getSlb') >= 0) {
+            var txt = '';
+            try { txt = resp.peekBody(2048).string(); } catch (e) {}
+            emit({ tag: 'resp', data: resp.code() + ' ' + url + '  ' + txt.slice(0, 220) });
+          }
+        } catch (e) {}
+        return resp;
+      };
+      emit({ tag: 'info', data: 'hooked okhttp-resp' });
+    } catch (e) { emit({ tag: 'warn', data: 'no okhttp-resp' }); }
+
     try {
       var P = Java.use('tv.danmaku.ijk.media.player.IjkMediaPlayer');
       ['setDataSource', '_setDataSource'].forEach(function (mn) {
