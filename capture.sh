@@ -142,13 +142,18 @@ else
     else break; fi
   done
   snap 2b_ready
-  # 4c) PLAY: en la ficha el botón de reproducción suele quedar enfocado -> CENTER;
-  #     y por si acaso, tap directo al círculo ▶ (arriba-derecha) por coordenada.
-  adb shell input keyevent 23 || true; sleep 2
-  adb shell input tap 1600 265 || true
-  sleep 5; snap 3_play
-  # 4d) segundo intento (por si el foco no estaba en Play al primer CENTER).
-  adb shell input keyevent 23 || true; sleep 4; snap 3b_play2
+  # 4c) PLAY: NO usar CENTER (activaba el chip de género "Action" -> categoría).
+  #     El "botón Play" es la VENTANA del reproductor (mFlRoot/mPlayerWindow).
+  #     Tap DIRECTO a su centro, leído del dump (fallback 1695,265).
+  dump_ui
+  pb=$(tr '>' '\n' < /tmp/ui.xml | grep -iE 'mFlRoot|mPlayerWindow' | grep -oE 'bounds="\[[0-9,]+\]\[[0-9,]+\]"' | head -1)
+  if [ -n "$pb" ]; then set -- $(echo "$pb" | grep -oE '[0-9]+'); px=$(( ($1+$3)/2 )); py=$(( ($2+$4)/2 )); else px=1695; py=265; fi
+  echo "PLAY tap -> $px,$py"
+  adb shell input tap "$px" "$py" || true
+  sleep 6; snap 3_play
+  # 4d) reintento del MISMO tap por si el primero no registró (sin CENTER).
+  adb shell input tap "$px" "$py" || true
+  sleep 5; snap 3b_play2
 fi
 
 # ¿Es viable un GATEWAY? El motor levanta un server local (mem://127.0.0.1:PORT y
