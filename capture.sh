@@ -23,6 +23,25 @@ sleep 5
 
 adb install -r -g app.apk || adb install -r app.apk || { echo "::error::install falló"; exit 1; }
 
+# ── Túnel residencial (exit node Tailscale en tu PC) ─────────────────────────
+# El portal bloquea TODA IP de datacenter (VPS y GH Actions -> portal100024,
+# "设备所在区域为黑名单"). Solo pasan IPs residenciales. Enrutamos el EGRESO del
+# runner (y por ende del emulador vía SLIRP) por tu IP de casa. Sin esto, `active`
+# falla y el catálogo se queda en el spinner.
+# Se levanta DESPUÉS de bajar frida-server + APK (esos usan la ruta directa, rápida)
+# y se baja al salir (trap) para no tunelizar la subida del artifact.
+if [ -n "${TS_AUTHKEY:-}" ] && [ -n "${EXIT_NODE:-}" ]; then
+  echo "== Túnel Tailscale: exit node $EXIT_NODE =="
+  curl -fsSL https://tailscale.com/install.sh | sh
+  sudo tailscale up --authkey="$TS_AUTHKEY" --hostname=gh-capture \
+    --exit-node="$EXIT_NODE" --exit-node-allow-lan-access --accept-routes || \
+    echo "::warning::tailscale up falló; el emulador saldrá por la IP del runner (bloqueada)"
+  trap 'sudo tailscale down >/dev/null 2>&1 || true' EXIT
+  echo "IP de salida efectiva:"; curl -s --max-time 12 https://api.ipify.org || true; echo
+else
+  echo "::warning::sin TS_AUTHKEY/EXIT_NODE -> el emulador saldrá por la IP del runner (será bloqueada: portal100024)"
+fi
+
 # (Sin bloqueo P2P: dejamos que reproduzca de verdad. Capturamos igual por Frida.)
 
 # Toca el centro del primer nodo cuyo text coincida (insensible a mayúsculas).

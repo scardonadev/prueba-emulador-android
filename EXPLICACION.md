@@ -154,9 +154,25 @@ La captura nos dice **cuál de los dos** es, sin seguir adivinando.
 - ⚠️ Navegar con D-pad a ciegas abrió el menú de cuenta ("My Account"), no un video.
   Cambio de estrategia: **solo cerrar el banner y dejar la app en su home**, tiempos
   cortos, y revisar screenshots para dar los taps exactos a un título.
-- ⏳ **Pendiente:** llegar a un video reproduciendo → leer la URL → decidir (A) o (B).
-  Cuando un video reproduzca, en el log saldrá la llamada `getSlbInfo` y el
-  `NativeJni.Call Open/Play` con los CDN, más el request real al CDN.
+- 🚧 **MURO IDENTIFICADO (geobloqueo por IP).** El hook de respuestas reveló que
+  `snToken` da `returnCode:"0"` pero **`active` da `returnCode:"portal100024"` /
+  `errorMessage:"设备所在区域为黑名单，栏目不可见"`** ("la región del dispositivo está
+  en lista negra; el catálogo no es visible"). La app llama `config/get` y se queda en
+  el spinner — nunca pide `getColumnContents`/`getSlbInfo` porque el portal ya dijo
+  "tu región no ve nada". **No es entitlement ni `getFree`: es la IP de salida.**
+  - Confirmado con `tools/probe-mod.js`: **VPS → `portal100024`** (bloqueado);
+    **IP residencial (casa) → `active rc 0`**, `getFree` OK, **30.642 películas**,
+    `startPlayVOD` con `media_code` + `license scheme=md5-01` (videoFormat `ts`, 720p),
+    20 canales live. ⇒ El portal **bloquea toda IP de datacenter** (VPS y GH Actions);
+    **solo pasan IPs residenciales**.
+- ✅ **Solución (implementada en el workflow): túnel residencial.** El emulador de GH
+  enruta su **egreso por tu IP de casa** mediante un **exit node de Tailscale corriendo
+  en Docker en tu PC**. `capture.sh` levanta `tailscale up --exit-node=$EXIT_NODE`
+  (inputs: `exit_node` + secret `TS_AUTHKEY`) tras instalar frida-server+APK y lo baja
+  al salir. Así `active` pasa y el catálogo carga.
+- ⏳ **Pendiente:** con el túnel activo, tocar una película → play → leer la URL →
+  decidir (A) o (B). Cuando un video reproduzca, en el log saldrá `getSlbInfo` (con
+  `cdn_list`) y el `NativeJni.Call Open/Play`, más el `setDataSource`/request real al CDN.
 
 ---
 

@@ -16,6 +16,9 @@ on:
       package:
         description: "Package name del APK"
         default: "com.lite.fczx"
+      exit_node:
+        description: "IP Tailscale del exit node (tu PC residencial). Vacío = sin túnel (será bloqueado)."
+        default: ""
 
 jobs:
   capture:
@@ -60,6 +63,8 @@ jobs:
           PKG: ${{ github.event.inputs.package }}
           DUR: ${{ github.event.inputs.duration }}
           TAPS: ${{ github.event.inputs.taps }}
+          EXIT_NODE: ${{ github.event.inputs.exit_node }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
         with:
           api-level: 30
           target: google_apis        # google_apis (NO playstore) => permite adb root
