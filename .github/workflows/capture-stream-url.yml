@@ -95,18 +95,18 @@ jobs:
             # Todos los endpoints (IP:puerto) contactados por el guest 10.0.2.15:
             tcpdump -r "$PCAP" -nn 2>/dev/null | awk '{print $3" > "$5}' | sort | uniq -c | sort -rn \
               > capture/pcap-endpoints.txt || true
-            # Peticiones HTTP en claro que NO sean portal/analytics (candidatas a CDN):
-            # -A vuelca ASCII; con contexto -A6 -B1 mantenemos juntos "GET /ruta" + "Host:" + headers.
-            tcpdump -r "$PCAP" -nn -A -s0 2>/dev/null \
-              | grep -aiE -A6 -B1 '^(GET|POST|PUT|HEAD) /|GET .*HTTP/1' \
-              | grep -aviE 'portalCore|umeng|crashlytics|googleapis|gstatic|firebase|/epg/|get_notice|MarketServer|generate_204|/v2/inn|/zcfg|/resolve' \
-              > capture/pcap-http-requests.txt || true
-            # LO MÁS IMPORTANTE: la línea GET completa (ruta del media) + el Host de cada request.
-            # Reconstruye "GET <path> HTTP" pegando el Host inmediato siguiente cuando aparece.
-            tcpdump -r "$PCAP" -nn -A -s0 2>/dev/null \
-              | grep -aoE '(GET|POST) [^ ]+ HTTP/1\.[01]|Host: [^ ]+|\.m3u8[^ ]*|[^ ]+\.ts[^ ]*' \
-              | grep -aviE 'portalCore|umeng|crashlytics|googleapis|gstatic|firebase|/epg/|generate_204' \
-              > capture/pcap-cdn.txt || true
+            # SOLO tráfico HTTP en claro (puerto 80). El motor baja el ORIGEN del media por
+            # HTTP Range -> aquí está el GET real al CDN (host + ruta + token + Range).
+            tcpdump -r "$PCAP" -nn -A -s0 'tcp port 80' 2>/dev/null \
+              | tr -d '\r' \
+              | grep -aE '^(GET|POST|PUT|HEAD) |^Host: |^Range: |^User-Agent: |^Authorization: ' \
+              | grep -aviE 'portalCore|/public/images|/public/subs|/notice/|/MarketServer|/epg/|umeng|crashlytics|generate_204|/adserver/' \
+              > capture/pcap-http80.txt || true
+            # Filtro fino: lo que huele al ORIGEN del media (rangos/ts/m3u8/vod).
+            grep -aiE 'GET .*(\.ts|\.m3u8|/vod/|/media|/live/|seg|range)|^Host: |^Range: |bytes=' capture/pcap-http80.txt \
+              > capture/pcap-media-origin.txt || true
+            # Todos los hosts HTTP contactados (para ver el CDN aunque cambie la ruta).
+            grep -aE '^Host: ' capture/pcap-http80.txt | sort | uniq -c | sort -rn > capture/pcap-http-hosts.txt || true
             # ¿Hay conexiones a los hosts CDN o a puertos de tracker P2P (5333)?
             tcpdump -r "$PCAP" -nn 2>/dev/null | grep -aiE '\.5333|iu15fg7dn|rh6ngfv34|halfgil|xdt3cdevc' \
               > capture/pcap-p2p-cdn.txt || true

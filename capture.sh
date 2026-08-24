@@ -96,8 +96,17 @@ tap_first_poster() {
   echo "poster -> $cx,$cy"; adb shell input tap "$cx" "$cy"
 }
 
-# 1) Cerrar el popup de inicio en bucle (aparece tarde y REAPARECE).
+# 0) La app ARM a veces cae al home (spawn de frida inestable). Si no está en
+#    primer plano, la relanzo por el launcher.
 sleep 16
+fg=$(adb shell dumpsys activity activities 2>/dev/null | grep -m1 mResumedActivity)
+if ! echo "$fg" | grep -qi 'com.lite.fczx'; then
+  echo "app NO está en foreground ($fg) -> relanzo"
+  adb shell monkey -p com.lite.fczx -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
+  sleep 10
+fi
+
+# 1) Cerrar el popup de inicio en bucle (aparece tarde y REAPARECE).
 for i in $(seq 1 12); do
   if popup_up; then echo "popup -> cierro"; adb shell input keyevent 23 || true; sleep 1; adb shell input keyevent 4 || true; fi
   sleep 2
