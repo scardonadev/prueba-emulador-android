@@ -191,16 +191,30 @@ fi
 # reproducible, un gateway = correr el motor y proxiar ese puerto. Lo probamos:
 # adb forward runner:19000 -> emulador:PORT y hacemos GET a rutas típicas.
 sleep 6
-PORT=$(grep -aoE 'mem://127\.0\.0\.1:[0-9]+' capture/frida.log 2>/dev/null | head -1 | grep -oE '[0-9]+$')
-MEDIA=$(grep -aoE '"media":"[^"]+"' capture/frida.log 2>/dev/null | head -1 | sed 's/.*:"//; s/"$//')
+# Prioriza la play_url REAL de VOD (http://127.0.0.1:PORT/vod/0/MEDIA.m3u8); si no,
+# cae al mem:// de live. El .m3u8 y sobre todo el .snapinfo (metadata del motor)
+# pueden revelar el ORIGEN del media.
+PLAYURL=$(grep -aoE 'http://127\.0\.0\.1:[0-9]+/vod/0/[A-Za-z0-9]+\.m3u8' capture/frida.log 2>/dev/null | head -1)
+PORT=$(echo "$PLAYURL" | grep -oE ':[0-9]+' | head -1 | tr -d ':')
+[ -z "$PORT" ] && PORT=$(grep -aoE 'mem://127\.0\.0\.1:[0-9]+' capture/frida.log 2>/dev/null | head -1 | grep -oE '[0-9]+$')
+MEDIA=$(echo "$PLAYURL" | grep -oE '/vod/0/[A-Za-z0-9]+' | head -1 | sed 's#.*/##')
+[ -z "$MEDIA" ] && MEDIA=$(grep -aoE '"media":"[^"]+"' capture/frida.log 2>/dev/null | head -1 | sed 's/.*:"//; s/"$//')
+# un nombre de segmento por rango real que ijkplayer pidió (para probar el server local)
+SEG=$(grep -aoE "/vod/0/${MEDIA}/[0-9]+-[0-9]+_[0-9]+~[0-9]+\.ts" capture/frida.log 2>/dev/null | head -1 | sed 's#.*/##')
 {
-  echo "motor local: PORT=${PORT:-?}  MEDIA=${MEDIA:-?}"
+  echo "motor local: PORT=${PORT:-?}  MEDIA=${MEDIA:-?}  SEG=${SEG:-?}"
+  echo "play_url: ${PLAYURL:-?}"
   if [ -n "${PORT:-}" ]; then
     adb forward tcp:19000 "tcp:${PORT}" || true
-    for path in "vod/0/${MEDIA}.snapinfo" "vod/0/${MEDIA}.m3u8" "vod/0/${MEDIA}" "vod/0/${MEDIA}/index.m3u8" "${MEDIA}.m3u8" "live/${MEDIA}.m3u8" "hls/${MEDIA}.m3u8"; do
+    PATHS="vod/0/${MEDIA}.m3u8 vod/0/${MEDIA}.snapinfo vod/0/${MEDIA}.info vod/0/${MEDIA}/index.m3u8"
+    [ -n "${SEG:-}" ] && PATHS="$PATHS vod/0/${MEDIA}/${SEG}"
+    for path in $PATHS; do
       echo "=== GET /$path ==="
-      curl -s -m 6 -D - "http://127.0.0.1:19000/$path" -o "capture/ls_$(echo "$path" | tr '/.' '__').bin" 2>&1 || true
-      echo "  (bytes: $(wc -c < "capture/ls_$(echo "$path" | tr '/.' '__').bin" 2>/dev/null || echo 0))"
+      curl -s -m 8 -D - -o "capture/ls_$(echo "$path" | tr '/.~' '___').bin" "http://127.0.0.1:19000/$path" 2>&1 || true
+      f="capture/ls_$(echo "$path" | tr '/.~' '___').bin"
+      echo "  (bytes: $(wc -c < "$f" 2>/dev/null || echo 0))"
+      # si es texto (m3u8/snapinfo), muéstralo: puede traer la URL del ORIGEN
+      case "$path" in *.m3u8|*.snapinfo|*.info) echo "  --- contenido ---"; head -c 1200 "$f" 2>/dev/null | tr -d '\000'; echo ;; esac
     done
   fi
 } > capture/local_server.txt 2>&1
