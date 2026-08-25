@@ -154,21 +154,36 @@ else
   # 4c) PLAY: NO usar CENTER (activaba el chip de género "Action" -> categoría).
   #     El "botón Play" es la VENTANA del reproductor (mFlRoot/mPlayerWindow).
   #     Tap DIRECTO a su centro, leído del dump (fallback 1695,265).
+  # DEJA CERRAR EL MODAL del tutorial (animación) antes de tocar play.
+  sleep 4
+  for i in $(seq 1 4); do
+    dump_ui || break
+    grep -qiE 'com.lite.fczx:id/mButton|access the subtitles|You can now' /tmp/ui.xml || break
+    b=$(tr '>' '\n' < /tmp/ui.xml | grep -i 'mButton' | grep -oE 'bounds="\[[0-9,]+\]\[[0-9,]+\]"' | head -1)
+    [ -n "$b" ] && { set -- $(echo "$b" | grep -oE '[0-9]+'); adb shell input tap $(( ($1+$3)/2 )) $(( ($2+$4)/2 )) || true; }
+    sleep 2
+  done
+  sleep 2
+  # 4d) PLAY: UN SOLO tap al icono de play (mIvPlayStatus). NO reintentar el mismo tap
+  #     (un segundo tap PAUSA mientras bufferea = por eso fallaba). Sin CENTER (géneros).
   dump_ui
-  # Prefiere el icono de play mIvPlayStatus; si no, la ventana del reproductor.
   pb=$(tr '>' '\n' < /tmp/ui.xml | grep -i 'mIvPlayStatus' | grep -oE 'bounds="\[[0-9,]+\]\[[0-9,]+\]"' | head -1)
   [ -z "$pb" ] && pb=$(tr '>' '\n' < /tmp/ui.xml | grep -iE 'mFlRoot|mPlayerWindow' | grep -oE 'bounds="\[[0-9,]+\]\[[0-9,]+\]"' | head -1)
   if [ -n "$pb" ]; then set -- $(echo "$pb" | grep -oE '[0-9]+'); px=$(( ($1+$3)/2 )); py=$(( ($2+$4)/2 )); else px=1695; py=265; fi
-  echo "PLAY tap -> $px,$py"
+  echo "tap PLAY (una vez) -> $px,$py"
   adb shell input tap "$px" "$py" || true
-  sleep 6; snap 3_play
-  # 4d) reintento CONDICIONAL: solo si SIGUE el botón ▶ (para NO pausar si ya arrancó).
-  dump_ui
-  if grep -qi 'mIvPlayStatus' /tmp/ui.xml; then
-    echo "aún ▶ -> un tap más"; adb shell input tap "$px" "$py" || true; sleep 6
-  fi
-  # 4e) deja BUFFERAR: aquí el motor pide getSlbInfo(vod) + segmentos (frida/pcap capturan).
-  sleep 25; snap 3b_play2
+  sleep 12; snap 3_play   # deja que el player pase de banner->negro y empiece a bufferar
+
+  # 4e) respaldo NO-pausante: si el ▶ sigue, abre en Full Screen (acción distinta,
+  #     no togglea el play inline). Reintenta hasta 2 veces.
+  for i in 1 2; do
+    dump_ui
+    grep -qi 'mIvPlayStatus' /tmp/ui.xml || { echo "sin boton play -> reproduce"; break; }
+    echo "sigue ▶ -> Full Screen (272,574) intento $i"
+    adb shell input tap 272 574 || true; sleep 10; snap "3_fullscreen_$i"
+  done
+  # 4f) deja BUFFERAR: aquí el motor pide getSlbInfo(vod) + segmentos (frida/pcap capturan).
+  sleep 25; snap 3b_final
 fi
 
 # ¿Es viable un GATEWAY? El motor levanta un server local (mem://127.0.0.1:PORT y
