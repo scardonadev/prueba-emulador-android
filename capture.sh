@@ -231,6 +231,10 @@ done
 
 wait "$DRV" || true
 adb logcat -d > capture/logcat.txt 2>/dev/null || true
+# Llaves TLS del NSS del motor (para descifrar guest.pcap en el step del pcap).
+adb root >/dev/null 2>&1 || true
+adb exec-out "cat /data/data/com.lite.fczx/sslkeys.log" > capture/sslkeys.log 2>/dev/null || true
+echo "sslkeys.log: $(wc -l < capture/sslkeys.log 2>/dev/null || echo 0) lineas (>0 => NSS volcó llaves; descifraremos el pcap)"
 # NOTA: el guest.pcap se analiza en un STEP POSTERIOR del workflow (tras apagar el
 # emulador y volcar el buffer). Aquí saldría truncado.
 grep -aiE 'http|m3u8|cdn|sign_type|token|main_addr|slb|ranger|titan|portalCore|startPlay|getSlb|connect|PR_Write|PR_Read|mem://|\.ts|entries|auths|links|JniHandler|PlayMedia|REPORT\.|OnReport|proxy' capture/frida.log 2>/dev/null \

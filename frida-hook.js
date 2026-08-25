@@ -1,4 +1,20 @@
 'use strict';
+// *** SSLKEYLOGFILE ***: forzar al NSS embebido del motor (libranger-jni) a volcar las
+// llaves TLS, para descifrar guest.pcap y ver el GET real al CDN origen (HTTPS del motor).
+// Debe correr AL CARGAR el script (antes del resume -> antes de que NSS inicialice).
+(function () {
+  try {
+    var p = Module.findExportByName(null, 'setenv');
+    if (p) {
+      var setenv = new NativeFunction(p, 'int', ['pointer', 'pointer', 'int']);
+      var K = Memory.allocUtf8String('SSLKEYLOGFILE');
+      var V = Memory.allocUtf8String('/data/data/com.lite.fczx/sslkeys.log');
+      setenv(K, V, 1);
+      try { send({ tag: 'info', data: 'SSLKEYLOGFILE=/data/data/com.lite.fczx/sslkeys.log' }); } catch (e) {}
+    } else { try { send({ tag: 'warn', data: 'no setenv' }); } catch (e) {} }
+  } catch (e) { try { send({ tag: 'warn', data: 'setenv SSLKEYLOGFILE failed: ' + e }); } catch (_) {} }
+})();
+
 // Captura la URL/firma real del stream leyendo en el borde (antes del TLS embebido):
 //   - Java: IjkMediaPlayer.setDataSource + TODOS los métodos de com.titan.ranger.*
 //   - Nativo: send/write/sendto de libc  -> HTTP en claro
