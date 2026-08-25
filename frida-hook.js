@@ -15,6 +15,15 @@
   } catch (e) { try { send({ tag: 'warn', data: 'setenv SSLKEYLOGFILE failed: ' + e }); } catch (_) {} }
 })();
 
+// Y lo antes posible por la vía Java (cruza la traducción ARM). Java.perform se ejecuta
+// en cuanto la VM está lista (al resume), antes del timeout de los hooks.
+try {
+  Java.perform(function () {
+    try { Java.use('android.system.Os').setenv('SSLKEYLOGFILE', '/data/data/com.lite.fczx/sslkeys.log', true);
+      try { send({ tag: 'info', data: 'Os.setenv(early) SSLKEYLOGFILE ok' }); } catch (e) {} } catch (e) {}
+  });
+} catch (e) {}
+
 // Captura la URL/firma real del stream leyendo en el borde (antes del TLS embebido):
 //   - Java: IjkMediaPlayer.setDataSource + TODOS los métodos de com.titan.ranger.*
 //   - Nativo: send/write/sendto de libc  -> HTTP en claro
@@ -115,6 +124,13 @@ function hookSSL() {
 
 function hookJava() {
   Java.perform(function () {
+    // *** SSLKEYLOGFILE por la vía que CRUZA la traducción ARM ***: Os.setenv es JNI ->
+    // setenv del libc ARM del propio proceso, así el getenv del NSS (ARM) del motor SÍ lo ve.
+    // Corre mucho antes del handshake TLS del motor (que es en la reproducción).
+    ['/data/data/com.lite.fczx/sslkeys.log', '/data/user/0/com.lite.fczx/sslkeys.log'].forEach(function (path) {
+      try { Java.use('android.system.Os').setenv('SSLKEYLOGFILE', path, true); emit({ tag: 'info', data: 'Os.setenv SSLKEYLOGFILE=' + path }); } catch (e) { emit({ tag: 'warn', data: 'Os.setenv ' + path + ' falló: ' + e }); }
+    });
+
     // okhttp: TODAS las peticiones (incl. portalCore/getSlbInfo), sin importar el TLS.
     try {
       var OkHttpClient = Java.use('okhttp3.OkHttpClient');

@@ -232,8 +232,13 @@ done
 wait "$DRV" || true
 adb logcat -d > capture/logcat.txt 2>/dev/null || true
 # Llaves TLS del NSS del motor (para descifrar guest.pcap en el step del pcap).
-adb root >/dev/null 2>&1 || true
-adb exec-out "cat /data/data/com.lite.fczx/sslkeys.log" > capture/sslkeys.log 2>/dev/null || true
+adb root >/dev/null 2>&1 || true; sleep 2
+adb exec-out "cat /data/data/com.lite.fczx/sslkeys.log 2>/dev/null || cat /data/user/0/com.lite.fczx/sslkeys.log 2>/dev/null" > capture/sslkeys.log 2>/dev/null || true
+# por si quedó en otra ruta, búscala
+if [ ! -s capture/sslkeys.log ]; then
+  F=$(adb exec-out "ls /data/data/com.lite.fczx/sslkeys.log /data/user/0/com.lite.fczx/sslkeys.log 2>/dev/null; find /data -name sslkeys.log 2>/dev/null" | head -1)
+  [ -n "$F" ] && adb exec-out "cat $F" > capture/sslkeys.log 2>/dev/null || true
+fi
 echo "sslkeys.log: $(wc -l < capture/sslkeys.log 2>/dev/null || echo 0) lineas (>0 => NSS volcó llaves; descifraremos el pcap)"
 # NOTA: el guest.pcap se analiza en un STEP POSTERIOR del workflow (tras apagar el
 # emulador y volcar el buffer). Aquí saldría truncado.
